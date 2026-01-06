@@ -1,0 +1,45 @@
+name: Update and Transform IPTV List
+
+# 触发条件
+on:
+  schedule:
+    # 北京时间每天早上 8:00 运行 (UTC 时间 0:00)
+    - cron: '10 0 * * *'
+  workflow_dispatch: # 允许手动点击按钮触发
+
+permissions:
+  contents: write
+
+jobs:
+  update-playlist:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 检出你的代码仓库
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. 下载源文件并进行转换 (核心步骤)
+    - name: Download and Transform
+      run: |
+        # 定义源文件地址
+        SOURCE_URL="https://raw.githubusercontent.com/Tzwcard/ChinaTelecom-GuangdongIPTV-RTP-List/master/GuangdongIPTV_rtp_all.m3u"
+        
+        # 定义你的 UDPXY 代理地址
+        PROXY_URL="http://gz.emoni.net:3149/rtp/"
+
+        # 下载文件，并使用 sed 命令进行实时替换，然后保存为 my_list.m3u
+        # 逻辑：将所有的 'rtp://' 替换为 'http://gz.emoni.net:3149/rtp/'
+        curl -s "$SOURCE_URL" | sed "s|rtp://|$PROXY_URL|g" > tvwan_list.m3u
+        
+        # 可选：打印前10行看看效果 (在 Action 日志中查看)
+        head -n 10 my_list.m3u
+
+    # 3. 提交更改到你的仓库
+    - name: Commit and Push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add my_list.m3u
+        # 如果文件没有变化，则不提交，防止报错
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update IPTV list with UDPXY proxy" && git push)
