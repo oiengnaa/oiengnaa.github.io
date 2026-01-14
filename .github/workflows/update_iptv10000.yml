@@ -1,13 +1,11 @@
 name: Update and Transform IPTV-10000 List
 
-# 触发条件
 on:
   schedule:
-    # 北京时间每天早上 08:20 运行 (UTC 00:20)
-    - cron: '20 0 * * *'
-  workflow_dispatch: # 允许手动点击按钮触发
+    # 北京时间每天早上 08:10 运行 (UTC 00:10)
+    - cron: '10 0 * * *'
+  workflow_dispatch:
 
-# 赋予 Action 写入仓库的权限
 permissions:
   contents: write
 
@@ -16,41 +14,40 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 1. 下载你的仓库代码到运行环境
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. 执行下载、替换和转换逻辑
     - name: Download and Transform
       run: |
-        # 设置源地址（已包含转义的中文路径）
+        # 1. 设置源地址
         SOURCE_URL="https://raw.githubusercontent.com/10000ge10000/iptv-api/refs/heads/master/output/rtp/%E5%B9%BF%E4%B8%9C_%E7%94%B5%E4%BF%A1.m3u"
         
-        # 设置你的目标代理地址
+        # 2. 设置代理地址
         PROXY_URL="http://gz.emoni.net:3149/rtp/"
 
-        # 使用 curl 下载并用 sed 批量替换 rtp://
-        # -sL 参数确保在有重定向时也能成功下载
-        curl -sL "$SOURCE_URL" | sed "s|rtp://|$PROXY_URL|g" > tv10000_list.m3u
+        # 3. 下载并替换文件名改为 tv10000.m3u
+        curl -sL "$SOURCE_URL" | sed "s|rtp://|$PROXY_URL|g" > tv10000.m3u
         
-        # 打印结果预览，方便在 Action 日志中排查问题
-        echo "--- 文件预览 (前 5 行) ---"
-        head -n 5 tv10000_list.m3u
-        echo "--- 预览结束 ---"
+        # 4. 检查文件是否为空
+        if [ ! -s tv10000.m3u ]; then
+          echo "错误：下载失败，文件为空。"
+          exit 1
+        fi
+        
+        echo "--- 预览 tv10000.m3u 前 5 行 ---"
+        head -n 5 tv10000.m3u
 
-    # 3. 将生成的 tvwan_list.m3u 提交回你的仓库
     - name: Commit and Push changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 添加文件到暂存区
-        git add tv10000_list.m3u
+        # 提交名为 tv10000.m3u 的文件
+        git add tv10000.m3u
         
-        # 只有当文件内容确实有变化时才提交，避免产生空的提交记录
         if git diff --staged --quiet; then
-          echo "内容没有变化，跳过提交。"
+          echo "内容无变化，跳过提交。"
         else
-          git commit -m "自动更新列表: $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "更新列表: $(date +'%Y-%m-%d %H:%M:%S')"
           git push
         fi
