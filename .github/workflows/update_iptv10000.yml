@@ -3,8 +3,8 @@ name: Update and Transform IPTV-10000 List
 # 触发条件
 on:
   schedule:
-    # 北京时间每天早上 08:10 运行 (UTC 00:10)
-    - cron: '10 0 * * *'
+    # 北京时间每天早上 08:20 运行 (UTC 00:20)
+    - cron: '20 0 * * *'
   workflow_dispatch: # 允许手动点击按钮触发
 
 # 赋予 Action 写入仓库的权限
@@ -31,11 +31,11 @@ jobs:
 
         # 使用 curl 下载并用 sed 批量替换 rtp://
         # -sL 参数确保在有重定向时也能成功下载
-        curl -sL "$SOURCE_URL" | sed "s|rtp://|$PROXY_URL|g" > tvwan_list.m3u
+        curl -sL "$SOURCE_URL" | sed "s|rtp://|$PROXY_URL|g" > tv10000_list.m3u
         
         # 打印结果预览，方便在 Action 日志中排查问题
         echo "--- 文件预览 (前 5 行) ---"
-        head -n 5 tvwan_list.m3u
+        head -n 5 tv10000_list.m3u
         echo "--- 预览结束 ---"
 
     # 3. 将生成的 tvwan_list.m3u 提交回你的仓库
@@ -45,7 +45,7 @@ jobs:
         git config --local user.name "github-actions[bot]"
         
         # 添加文件到暂存区
-        git add tvwan_list.m3u
+        git add tv10000_list.m3u
         
         # 只有当文件内容确实有变化时才提交，避免产生空的提交记录
         if git diff --staged --quiet; then
