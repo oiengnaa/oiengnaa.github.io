@@ -34,19 +34,25 @@ jobs:
 
         def clean_channel_name(name):
             try:
+                original = name.strip()
                 name = str(name).upper()
-                # 1. 移除所有括号及内容
+                
+                # 特殊处理 CCTV
+                cctv_re = re.search(r'CCTV[- ]?(\d+)', name)
+                if cctv_re:
+                    return f"CCTV-{cctv_re.group(1)}"
+
+                # 移除括号及干扰词
                 name = re.sub(r'[\(\[（【].*?[\)\]）】]', '', name)
-                # 2. 移除关键字
-                garbage = ['高清', '标清', '超清', 'HD', 'SD', 'FHD', '4K', '8K', '蓝光', '频道', '电信', 'IPTV', '测试', '备用', '时移', '专用', 'PLUS']
+                garbage = ['高清', '标清', '超清', 'HD', 'SD', 'FHD', '4K', '8K', '蓝光', '频道', '电信', 'IPTV', '测试', '备用', '时移', '专用', 'PLUS', '中央']
                 for word in garbage:
                     name = name.replace(word, '')
-                # 3. 规范化 CCTV 格式
-                cctv_match = re.search(r'CCTV[- ]?(\d+)', name)
-                if cctv_match:
-                    name = f"CCTV-{cctv_match.group(1)}"
-                # 4. 移除所有特殊符号（只保留中文、英文字母、数字）
+
+                # 移除符号
                 name = re.sub(r'[^\u4e00-\u9fa5A-Z0-9]', '', name)
+                
+                if not name or name.isdigit():
+                    return original
                 return name.strip()
             except:
                 return name
@@ -58,10 +64,10 @@ jobs:
                 r.encoding = 'utf-8'
                 lines = r.text.splitlines()
             except Exception as e:
-                print(f"网络请求失败: {e}")
-                sys.exit(1)
+                print(f"失败: {e}"); sys.exit(1)
 
-            channels = {}
+            # 结构: { (分组名, 统一后的频道名): [原始元数据, [URL列表]] }
+            groups_dict = {}
             current_meta = None
             
             for line in lines:
@@ -70,29 +76,40 @@ jobs:
                 if line.startswith("#EXTINF"):
                     current_meta = line
                 elif (line.startswith("rtp://") or line.startswith("http")) and current_meta:
+                    # 1. 提取原始分组名 (group-title)
+                    group_match = re.search(r'group-title="(.*?)"', current_meta)
+                    group_name = group_match.group(1) if group_match else "其他"
+                    
+                    # 2. 提取并清理频道名
                     raw_name = current_meta.split(",")[-1].strip()
                     unified_name = clean_channel_name(raw_name)
-                    if not unified_name: unified_name = raw_name
-
+                    
+                    key = (group_name, unified_name)
                     new_url = line.replace("rtp://", PROXY_URL)
                     
-                    if unified_name not in channels:
-                        channels[unified_name] = []
-                    channels[unified_name].append(new_url)
+                    if key not in groups_dict:
+                        # 存一份原始 meta 用于保留图标(tvg-logo)等信息
+                        groups_dict[key] = {"meta": current_meta, "urls": []}
+                    
+                    if new_url not in groups_dict[key]["urls"]:
+                        groups_dict[key]["urls"].append(new_url)
                     current_meta = None
-
-            if not channels:
-                print("错误：未匹配到任何有效频道数据！")
-                sys.exit(1)
 
             with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
                 f.write("#EXTM3U\n")
-                for name, urls in sorted(channels.items()):
-                    for url in urls:
-                        f.write(f'#EXTINF:-1 tvg-name="{name}" group-title="SmartMerge",{name}\n')
+                # 遍历处理后的数据
+                for (g_name, c_name), data in groups_dict.items():
+                    # 还原原始 meta 但更新频道名和分组名
+                    base_meta = data["meta"]
+                    # 确保 meta 里的 group-title 和频道名被正确替换
+                    new_meta = re.sub(r'group-title=".*?"', f'group-title="{g_name}"', base_meta)
+                    new_meta = re.sub(r',(.*)$', f',{c_name}', new_meta)
+                    
+                    for url in data["urls"]:
+                        f.write(f"{new_meta}\n")
                         f.write(f"{url}\n")
             
-            print(f"处理成功！合并后频道数: {len(channels)}")
+            print(f"同步完成，保留了原始分组。")
 
         if __name__ == "__main__":
             process_m3u()
@@ -101,12 +118,9 @@ jobs:
         pip install requests
         python process_m3u.py
         
-        # 验证文件是否真的产生了
         if [ -f tv_smart.m3u ]; then
-          echo "文件生成成功: tv_smart.m3u"
           ls -lh tv_smart.m3u
         else
-          echo "文件生成失败！"
           exit 1
         fi
 
@@ -116,8 +130,8 @@ jobs:
         git config --local user.name "github-actions[bot]"
         git add tv_smart.m3u
         if git diff --staged --quiet; then
-          echo "No changes to commit"
+          echo "No changes"
         else
-          git commit -m "Auto-fix: smart merge update $(date)"
+          git commit -m "保留原始分组并优化合并 $(date)"
           git push
         fi
