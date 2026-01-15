@@ -1,10 +1,10 @@
 name: Smart Merge IPTV List (Python)
 
-# 触发条件：同样设为北京时间 08:15
 on:
   schedule:
-    - cron: '15 0 * * *'
-  workflow_dispatch:
+    # 北京时间每天早上 08:10 运行 (UTC 00:10)
+    - cron: '10 0 * * *'
+  workflow_dispatch: # 支持手动触发
 
 permissions:
   contents: write
@@ -24,21 +24,30 @@ jobs:
 
     - name: Run Smart Merge Script
       run: |
-        # 创建 Python 脚本
         cat <<EOF > process_m3u.py
         import requests
-        
+        import re
+
         # --- 配置区域 ---
-        # 原始链接
         SOURCE_URL = "https://raw.githubusercontent.com/Tzwcard/ChinaTelecom-GuangdongIPTV-RTP-List/refs/heads/master/GuangdongIPTV_rtp_all.m3u"
-        # 你的代理地址
         PROXY_URL = "http://gz.emoni.net:3149/rtp/"
-        # 输出文件名 (为了不覆盖原来的，这里暂时叫 tv_smart.m3u)
         OUTPUT_FILE = "tv_smart.m3u"
         # ----------------
-        
+
+        def clean_channel_name(name):
+            """
+            核心逻辑：清理频道名称中的杂质，使不同线路的名称归于统一
+            """
+            # 1. 去掉括号、方括号及其内容 (例如: [高清], (1080P))
+            name = re.sub(r'[\(\[].*?[\)\]]', '', name)
+            # 2. 去掉常见的后缀 (例如: -高清, _4K, HD, SD, 8M, 超清)
+            # 使用 IGNORECASE 忽略大小写
+            name = re.sub(r'[\s\-_]?(高清|标清|HD|SD|4K|8M|超清|FHD|蓝光)', '', name, flags=re.IGNORECASE)
+            # 3. 去掉多余空格
+            return name.strip()
+
         def process_m3u():
-            print(f"正在下载源文件: {SOURCE_URL}...")
+            print(f"开始获取源...")
             try:
                 response = requests.get(SOURCE_URL, timeout=30)
                 response.raise_for_status()
@@ -46,73 +55,68 @@ jobs:
             except Exception as e:
                 print(f"下载失败: {e}")
                 exit(1)
-        
+
             lines = content.splitlines()
-            channels = {}
+            channels = {} # 格式: { "统一后的频道名": [ (原始元数据, 转换后的URL), ... ] }
             current_meta = None
-            
-            print("正在智能合并同名频道...")
             
             for line in lines:
                 line = line.strip()
-                if not line:
-                    continue
+                if not line: continue
                 
                 if line.startswith("#EXTINF"):
                     current_meta = line
                 elif line.startswith("rtp://") and current_meta:
-                    # 提取频道名称 (逗号后的部分)
-                    try:
-                        # 解析示例: #EXTINF:-1 tvg-name="CCTV1",CCTV-1
-                        channel_name = current_meta.split(",")[-1].strip()
-                        
-                        # 替换 rtp 为代理地址
-                        new_url = line.replace("rtp://", PROXY_URL)
-                        
-                        if channel_name not in channels:
-                            channels[channel_name] = []
-                        
-                        channels[channel_name].append((current_meta, new_url))
-                    except:
-                        pass
-                    current_meta = None 
-            
-            # 写入文件
+                    # 提取逗号后的频道原始名称
+                    original_name = current_meta.split(",")[-1].strip()
+                    # 归一化处理（合并的关键）
+                    unified_name = clean_channel_name(original_name)
+                    
+                    new_url = line.replace("rtp://", PROXY_URL)
+                    
+                    if unified_name not in channels:
+                        channels[unified_name] = []
+                    
+                    channels[unified_name].append((current_meta, new_url))
+                    current_meta = None
+
             with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
                 f.write("#EXTM3U\n")
-                count = 0
+                channel_count = 0
+                source_count = 0
+                
+                # 遍历字典，将同一频道的不同源写在一起
                 for name, sources in channels.items():
+                    channel_count += 1
                     for meta, url in sources:
-                        f.write(f"{meta}\n")
+                        # 重点：修改 M3U 中的显示名称，使其完全一致
+                        # 将 #EXTINF:...,原频道名 改为 #EXTINF:...,统一后的频道名
+                        new_meta = re.sub(r',(.*)$', f',{name}', meta)
+                        f.write(f"{new_meta}\n")
                         f.write(f"{url}\n")
-                        count += 1
+                        source_count += 1
             
-            print(f"处理完成! 生成文件: {OUTPUT_FILE}")
-            print(f"共合并 {len(channels)} 个频道，包含 {count} 条线路。")
+            print(f"处理完成！")
+            print(f"原始频道被归纳为: {channel_count} 个唯一频道")
+            print(f"总计保留线路: {source_count} 条")
 
         if __name__ == "__main__":
             process_m3u()
         EOF
         
-        # 安装依赖并运行
         pip install requests
         python process_m3u.py
-        
-        # 预览前5行
-        echo "--- 预览新文件 ---"
-        head -n 5 tv_smart.m3u
 
     - name: Commit and Push changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 注意：这里提交的是 tv_smart.m3u
         git add tv_smart.m3u
         
         if git diff --staged --quiet; then
           echo "内容无变化，跳过提交。"
         else
-          git commit -m "智能合并更新: $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "智能合并频道列表: $(date +'%Y-%m-%d %H:%M:%S')"
           git push
         fi
