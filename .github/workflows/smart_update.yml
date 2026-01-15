@@ -26,46 +26,40 @@ jobs:
         cat <<EOF > process_m3u.py
         import requests
         import re
+        import sys
 
         SOURCE_URL = "https://raw.githubusercontent.com/Tzwcard/ChinaTelecom-GuangdongIPTV-RTP-List/refs/heads/master/GuangdongIPTV_rtp_all.m3u"
         PROXY_URL = "http://gz.emoni.net:3149/rtp/"
         OUTPUT_FILE = "tv_smart.m3u"
 
         def clean_channel_name(name):
-            # 1. 统一转为大写，处理 CCTV 和 cctv 的区别
-            name = name.upper()
-            
-            # 2. 移除括号、方括号及其中间的所有内容 (包括中文括号)
-            name = re.sub(r'[\(\[（【].*?[\)\]）】]', '', name)
-            
-            # 3. 移除特定后缀及属性标记
-            garbage = ['高清', '标清', '超清', 'HD', 'SD', 'FHD', '4K', '8K', '蓝光', '频道', '电信', 'IPTV', '测试', '备用', '时移', '专用']
-            for word in garbage:
-                name = name.replace(word, '')
-
-            # 4. 处理 CCTV 的特殊格式（让 CCTV1, CCTV-1, CCTV1综合 全部变成 CCTV-1）
-            cctv_match = re.search(r'CCTV[- ]?(\d+)', name)
-            if cctv_match:
-                name = f"CCTV-{cctv_match.group(1)}"
-            
-            # 5. 移除所有非中文字符、非字母、非数字的内容（去掉空格、破折号、下划线等）
-            name = re.sub(r'[^\u4e00-\u9fa5A-Z0-9]', '', name)
-            
-            # 6. 常见别名手动修正（可选增强）
-            alias_map = {
-                "凤凰中文": "凤凰卫视中文台",
-                "凤凰资讯": "凤凰卫视资讯台",
-                "翡翠台粤": "翡翠台"
-            }
-            return alias_map.get(name, name)
+            try:
+                name = str(name).upper()
+                # 1. 移除所有括号及内容
+                name = re.sub(r'[\(\[（【].*?[\)\]）】]', '', name)
+                # 2. 移除关键字
+                garbage = ['高清', '标清', '超清', 'HD', 'SD', 'FHD', '4K', '8K', '蓝光', '频道', '电信', 'IPTV', '测试', '备用', '时移', '专用', 'PLUS']
+                for word in garbage:
+                    name = name.replace(word, '')
+                # 3. 规范化 CCTV 格式
+                cctv_match = re.search(r'CCTV[- ]?(\d+)', name)
+                if cctv_match:
+                    name = f"CCTV-{cctv_match.group(1)}"
+                # 4. 移除所有特殊符号（只保留中文、英文字母、数字）
+                name = re.sub(r'[^\u4e00-\u9fa5A-Z0-9]', '', name)
+                return name.strip()
+            except:
+                return name
 
         def process_m3u():
-            print("开始强力清洗并合并...")
+            print("正在获取远程文件...")
             try:
-                response = requests.get(SOURCE_URL, timeout=30)
-                lines = response.text.splitlines()
+                r = requests.get(SOURCE_URL, timeout=30)
+                r.encoding = 'utf-8'
+                lines = r.text.splitlines()
             except Exception as e:
-                print(f"Error: {e}"); exit(1)
+                print(f"网络请求失败: {e}")
+                sys.exit(1)
 
             channels = {}
             current_meta = None
@@ -75,12 +69,10 @@ jobs:
                 if not line: continue
                 if line.startswith("#EXTINF"):
                     current_meta = line
-                elif line.startswith("rtp://") and current_meta:
+                elif (line.startswith("rtp://") or line.startswith("http")) and current_meta:
                     raw_name = current_meta.split(",")[-1].strip()
                     unified_name = clean_channel_name(raw_name)
-                    
-                    if not unified_name: # 防止清洗后变成空字符串
-                        unified_name = raw_name
+                    if not unified_name: unified_name = raw_name
 
                     new_url = line.replace("rtp://", PROXY_URL)
                     
@@ -89,17 +81,18 @@ jobs:
                     channels[unified_name].append(new_url)
                     current_meta = None
 
+            if not channels:
+                print("错误：未匹配到任何有效频道数据！")
+                sys.exit(1)
+
             with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
                 f.write("#EXTM3U\n")
-                for name, urls in channels.items():
-                    # 为每一条线路生成规范的元数据
-                    for i, url in enumerate(urls):
-                        # 重点：所有同组线路的名称必须完全一致！
-                        # 增加 tvg-name 以增强某些播放器的识别率
-                        f.write(f'#EXTINF:-1 tvg-name="{name}" group-title="合并线路",{name}\n')
+                for name, urls in sorted(channels.items()):
+                    for url in urls:
+                        f.write(f'#EXTINF:-1 tvg-name="{name}" group-title="SmartMerge",{name}\n')
                         f.write(f"{url}\n")
             
-            print(f"成功将频道合并为 {len(channels)} 个。")
+            print(f"处理成功！合并后频道数: {len(channels)}")
 
         if __name__ == "__main__":
             process_m3u()
@@ -107,3 +100,24 @@ jobs:
         
         pip install requests
         python process_m3u.py
+        
+        # 验证文件是否真的产生了
+        if [ -f tv_smart.m3u ]; then
+          echo "文件生成成功: tv_smart.m3u"
+          ls -lh tv_smart.m3u
+        else
+          echo "文件生成失败！"
+          exit 1
+        fi
+
+    - name: Commit and Push changes
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add tv_smart.m3u
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Auto-fix: smart merge update $(date)"
+          git push
+        fi
