@@ -765,10 +765,8 @@ http://gz.emoni.net:3149/rtp/239.77.1.185:5146
 http://gz.emoni.net:3149/rtp/239.77.1.186:5146
 #EXTINF:-1,UNKNOWN2397702185146
 http://gz.emoni.net:3149/rtp/239.77.0.218:5146
-#EXTINF:-1,UNKNOWN2397712195146
-http://gz.emoni.net:3149/rtp/239.77.1.219:5146
-#EXTINF:-1,UNKNOWN2397712345146
-http://gz.emoni.net:3149/rtp/239.77.1.234:5146
+#EXTINF:-1,广东广告
+http://gz.emoni.net:3149/rtp/239.77.0.240:5146
 #EXTINF:-1,广东广告
 http://gz.emoni.net:3149/rtp/239.77.0.241:5146
 #EXTINF:-1,广东广告
@@ -777,8 +775,6 @@ http://gz.emoni.net:3149/rtp/239.77.0.190:5146
 http://gz.emoni.net:3149/rtp/239.77.0.191:5146
 #EXTINF:-1,广东广告
 http://gz.emoni.net:3149/rtp/239.77.0.193:5146
-#EXTINF:-1,广东广告
-http://gz.emoni.net:3149/rtp/239.77.0.240:5146
 #EXTINF:-1,百视通体育直播室1
 http://gz.emoni.net:3149/rtp/239.253.43.115:5146
 #EXTINF:-1,百视通体育直播室4
